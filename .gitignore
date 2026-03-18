@@ -1,0 +1,32 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+dist/
+build/
+*.egg
+
+# Virtual environments
+.venv/
+venv/
+env/
+
+# IDE / editor
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Agent / AI tool configs
+.gemini/
+.claude/
+CLAUDE.md
+
+# Environment / secrets
+.env
+*.pem
+*.key
+*.p12
+*.keystore
