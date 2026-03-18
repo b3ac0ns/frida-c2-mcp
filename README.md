@@ -11,10 +11,18 @@ An MCP server with streamable HTTP transport that runs Frida's dynamic instrumen
 **Gemini CLI — register the device MCP server** (replace `<DEVICE_IP>` with your phone’s LAN address):
 
 ```bash
-gemini mcp add --transport http frida-c2-mcp http://<DEVICE_IP>:6767
+gemini mcp add --transport http frida-c2-mcp http://<DEVICE_IP>:6767/mcp
 ```
 
+**Android Demo**
+
 https://github.com/user-attachments/assets/7cee77c5-ed40-4797-b6b5-3edb5fdd03ce
+
+
+**iOS Demo**
+
+https://github.com/user-attachments/assets/065955cb-cce5-41b7-aba4-f5d8b94bd057
+
 
 ## Core Functionality
 
@@ -72,7 +80,7 @@ Precompiled wheels and the Python `.deb` are included in `ios_precompiled/` so y
 
 ## Vision
 
-FridaC2MCP is scaffolding for an automated mobile pentesting framework. The idea is to compose multiple specialized MCP servers — FridaC2MCP for dynamic instrumentation, [Jadx-MCP](https://github.com/pari-27/jadx-mcp) for static analysis — and let AI agents orchestrate the full workflow. Decompile an APK, identify interesting methods, then hook them live. No manual tool-switching, no copy-pasting between terminals.
+FridaC2MCP is scaffolding for an automated mobile pentesting framework. The idea is to compose multiple specialized MCP servers — for example: FridaC2MCP for dynamic instrumentation, [Jadx-MCP](https://github.com/pari-27/jadx-mcp) for static analysis — and let AI agents orchestrate the full workflow. Decompile an APK, identify interesting methods, then hook them live. No manual tool-switching, no copy-pasting between terminals.
 
 This pairs naturally with Gemini CLI and Claude Code, which already support multi-tool MCP workflows natively. The framework doesn't need to implement its own agent orchestration — it just needs to provide the right MCP servers and let existing agents do what they're good at.
 
@@ -81,18 +89,6 @@ This pairs naturally with Gemini CLI and Claude Code, which already support mult
 - **iOS OpenSSL / SSL:** The Python 3.12 build’s OpenSSL integration is not fully correct. This has not blocked the MCP server (which does not rely on HTTPS for its own transport), but it may matter if a future dependency needs a working TLS context on-device. See `devlog.md` for detail.
 
 - **FastMCP 2.x only:** FastMCP 3.x introduced breaking API changes. **Android and iOS** both pin below 3.x. Install via `requirements-android.txt` or `requirements-ios.txt` — do not upgrade to an unpinned `fastmcp` until this repo migrates.
-
-## Roadmap & Progress
-
-**Android**
-
-- **Native tooling upgrade:** Since I have a manual build technique for Frida I can just drop `esbulid` and just install `frida-tools` over Frida so `frida-compile` can be used instead of `esbuild`, so planning on releasing that for a cleaner build. This way we can just call all our favorite frida tools on-device XD
-
-**iOS**
-
-- **iOS rootless jailbreak support:** I went on a truly unhinged and nightmarish foray into compiler hell, but I have a (mostly) working version that I tested on my rootless jailbroken iPhone X running iOS 16.7.12 **almost** ready for release! :3
-- **Python3.12:** This will feature a custom-compiled Python 3.12, a version not even available yet via Procursus repo. It also includes a suite of custom-compiled Python packages patched specifically for rootless environments. This was necessary imo to bring the full power of  `fastmcp` to iOS.
-- **Nodeless design:** Node.js is not necessary. Supports (only) ObjC for on-the-fly compilation.
 
 ## Acknowledgments
 
