@@ -188,10 +188,8 @@ async def create_interactive_session(
     try:
         device = await _get_remote_device()
         
-        # Attach blocking call in thread
         session = await asyncio.to_thread(device.attach, process_id)
         
-        # Use simple ID generation
         import time
         session_id = f"session_{process_id}_{int(time.time())}"
         
@@ -214,8 +212,14 @@ async def execute_in_session(
     keep_alive: bool = Field(default=False, description="Keep script loaded for hooks/callbacks.")
 ) -> Dict[str, Any]:
     """
-    Execute JS in session. Compiles with esbuild before execution.
-    Crucially: If you are hooking a function, you MUST set keep_alive=True.
+    Execute JavaScript in a session. Compiles with esbuild before execution.
+
+    - keep_alive=False (one-shot): Script runs, returns result, and unloads. Console output
+      is captured and returned directly in the response's 'console_output' field.
+      Do NOT call get_session_messages for one-shot scripts — the output is already in the response.
+    - keep_alive=True (persistent hooks): Script stays loaded for ongoing interception.
+      Console output from hooks is queued and must be retrieved via get_session_messages.
+      You MUST use keep_alive=True when hooking/intercepting functions.
     """
     if session_id not in _scripts:
         raise ValueError(f"Session {session_id} not found.")
@@ -227,31 +231,33 @@ async def execute_in_session(
     wrapped_code = f"""
     import Java from 'frida-java-bridge';
     'use strict';
-    Java.perform({{
-        onComplete: function() {{
-            send({{ 'type': 'agent:ready' }}); // Signal that Java env is ready
-            try {{
-                var result = (function() {{
-                    {javascript_code}
-                }})();
-                send({{ 
-                    'type': 'agent:result', 
-                    'status': 'success',
-                    'result': result !== undefined ? String(result) : 'Script executed (no direct return value).',
-                }});
-            }} catch (e) {{
-                send({{ 
-                    'type': 'agent:result',
-                    'status': 'error',
-                    'error': {{ 'message': e.message, 'stack': e.stack }}
-                }});
-            }}
-        }},
-        onError: function(error) {{
-             send({{ 
-                'type': 'agent:result', // Send result on error too
+
+    var _console_output = [];
+    var _origLog = console.log;
+    console.log = function() {{
+        var msg = Array.prototype.slice.call(arguments).join(' ');
+        _console_output.push(msg);
+        if (_origLog) _origLog.apply(console, arguments);
+    }};
+
+    Java.perform(function() {{
+        send({{ 'type': 'agent:ready' }});
+        try {{
+            var result = (function() {{
+                {javascript_code}
+            }})();
+            send({{ 
+                'type': 'agent:result', 
+                'status': 'success',
+                'result': result !== undefined ? String(result) : 'Script executed (no direct return value).',
+                'console_output': _console_output
+            }});
+        }} catch (e) {{
+            send({{ 
+                'type': 'agent:result',
                 'status': 'error',
-                'error': {{ 'message': "Java.perform error: " + error.message, 'stack': error.stack }}
+                'error': {{ 'message': e.message, 'stack': e.stack }},
+                'console_output': _console_output
             }});
         }}
     }});
@@ -262,23 +268,32 @@ async def execute_in_session(
     else:
         uncompiled_code = wrapped_code
 
-    # --- ESBuild Compilation Step ---
+    # --- ESBuild Compilation Step (preserved from original) ---
     compiled_code = ""
-    # Use a unique name for temp files
-    with tempfile.NamedTemporaryFile(mode='w+', delete=False, suffix='.js', dir="/data/data/com.termux/files/home",encoding='utf-8') as infile:
+    with tempfile.NamedTemporaryFile(mode='w+', delete=False, suffix='.js', dir="/data/data/com.termux/files/home", encoding='utf-8') as infile:
         infile_path = infile.name
         outfile_path = infile_path.replace('.js', '.compiled.js')
 
         try:
-            # Ensure import exists
+            if keep_alive:
+                log_shim = (
+                    "var _origLog = console.log;\n"
+                    "console.log = function() {\n"
+                    "    var msg = Array.prototype.slice.call(arguments).join(' ');\n"
+                    "    send({ type: 'agent:log', message: msg });\n"
+                    "    if (_origLog) _origLog.apply(console, arguments);\n"
+                    "};\n"
+                )
+                uncompiled_code = log_shim + uncompiled_code
+
             if "frida-java-bridge" not in uncompiled_code:
-                uncompiled_code = f"import Java from 'frida-java-bridge';\n{uncompiled_code}"
-            
+                uncompiled_code = "import Java from 'frida-java-bridge';\n" + uncompiled_code
+
             infile.write(uncompiled_code)
             infile.close()
             
             command = [
-                'esbuild', infile_path, '--bundle', '--minify', 
+                'esbuild', infile_path, '--bundle', '--minify',
                 f'--outfile={outfile_path}'
             ]
             
@@ -306,22 +321,26 @@ async def execute_in_session(
     result_future = loop.create_future()
 
     def on_message(message, data):
-        payload = message.get('payload', {{}})
-        msg_type = payload.get('type')
+        payload = message.get('payload', {})
+        msg_type = payload.get('type') if isinstance(payload, dict) else None
 
         if message.get('type') == 'error':
-            # This is a script compilation error
             if not result_future.done():
-                result_future.set_exception(RuntimeError(message['description']))
+                loop.call_soon_threadsafe(
+                    result_future.set_exception,
+                    RuntimeError(message.get('description', 'Unknown script error'))
+                )
             return
-        
-        if msg_type == 'agent:ready':
+
+        if msg_type == 'agent:result':
             if not result_future.done():
                 loop.call_soon_threadsafe(result_future.set_result, payload)
-        
-        else: # Handle other messages like console.log, send(), etc.
-             if session_id in _script_messages:
-                _script_messages[session_id].append({{"type": message["type"], "payload": payload}})
+        elif msg_type == 'agent:log':
+            if session_id in _script_messages:
+                _script_messages[session_id].append({"type": "log", "message": payload.get("message", "")})
+        elif msg_type != 'agent:ready':
+            if session_id in _script_messages:
+                _script_messages[session_id].append({"type": message["type"], "payload": payload})
 
 
     try:
@@ -343,7 +362,6 @@ async def execute_in_session(
                 "script_unloaded": False
             }
 
-        # Wait for a non-persistent script to finish
         receipt = await asyncio.wait_for(result_future, timeout=10.0)
 
         result_data = {
@@ -354,7 +372,11 @@ async def execute_in_session(
             result_data["result"] = receipt.get("result")
         else:
             result_data["error_details"] = receipt.get("error")
-        
+
+        console_output = receipt.get("console_output", [])
+        if console_output:
+            result_data["console_output"] = console_output
+
         return result_data
 
     except asyncio.TimeoutError:
@@ -364,19 +386,22 @@ async def execute_in_session(
             "script_unloaded": not keep_alive
         }
     except Exception as e:
-         return {"status": "error", "message": f"Failed to execute script: {{e}}"}
+         return {"status": "error", "message": f"Failed to execute script: {e}"}
 
     finally:
-        # Cleanup if not keeping alive and script was created
         if not keep_alive and 'script' in locals() and script:
             try:
                 await asyncio.to_thread(script.unload)
             except:
-                pass # Ignore unload errors
+                pass
 
 @mcp.tool()
 async def get_session_messages(session_id: str) -> Dict[str, Any]:
-    """Get queued messages."""
+    """
+    Retrieve and flush queued messages from persistent (keep_alive=True) scripts.
+    Messages are cleared after retrieval — each message is returned only once.
+    Only useful for persistent hooks; one-shot scripts return output directly in execute_in_session.
+    """
     if session_id not in _script_messages:
         raise ValueError("Session not found.")
     

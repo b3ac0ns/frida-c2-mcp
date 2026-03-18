@@ -1,0 +1,10 @@
+# FridaC2MCP - iOS (jailbroken) dependencies
+# Install with: python3.12 -m pip install -r requirements-ios.txt
+#
+# NOTE: Do NOT install frida via pip — use the precompiled wheel in ios_precompiled/.
+# Native wheels (frida, cryptography, cffi, pydantic-core, rpds-py, pyyaml, lupa)
+# must be installed from ios_precompiled/ BEFORE running this file.
+# See setup.md for the full installation order and ldid signing instructions.
+
+fastmcp>=2.3.0,<3.0.0
+pydantic>=2.0.0,<3.0.0

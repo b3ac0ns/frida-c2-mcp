@@ -1,0 +1,8 @@
+# FridaC2MCP - Android (Termux) dependencies
+# Install with: pip install -r requirements-android.txt
+#
+# NOTE: Do NOT install frida via pip — it will fail on Android.
+# Build frida-python from source using the instructions in setup.md.
+
+fastmcp>=2.3.0,<3.0.0
+pydantic>=2.0.0,<3.0.0
