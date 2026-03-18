@@ -21,7 +21,7 @@ https://github.com/user-attachments/assets/7cee77c5-ed40-4797-b6b5-3edb5fdd03ce
 
 **iOS Demo**
 
-https://github.com/user-attachments/assets/065955cb-cce5-41b7-aba4-f5d8b94bd057
+https://github.com/user-attachments/assets/1f0fa9c4-6fd0-4dfd-a640-78c9f8a95a6b
 
 
 ## Core Functionality
